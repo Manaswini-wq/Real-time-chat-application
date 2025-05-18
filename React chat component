@@ -1,0 +1,95 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useSocket } from '../../context/SocketContext';
+import './Chat.css';
+
+const Chat = ({ currentUser, currentRoom }) => {
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const messagesEndRef = useRef(null);
+  const socket = useSocket();
+
+  useEffect(() => {
+    if (!socket || !currentRoom) return;
+
+    // Join room when component mounts
+    socket.emit('join_room', { 
+      roomId: currentRoom._id, 
+      userId: currentUser._id 
+    });
+
+    // Listen for new messages
+    socket.on('receive_message', (message) => {
+      setMessages(prev => [...prev, message]);
+    });
+
+    // Listen for message history
+    socket.on('message_history', (history) => {
+      setMessages(history);
+    });
+
+    return () => {
+      socket.off('receive_message');
+      socket.off('message_history');
+    };
+  }, [socket, currentRoom]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (!newMessage.trim()) return;
+
+    socket.emit('send_message', {
+      roomId: currentRoom._id,
+      userId: currentUser._id,
+      content: newMessage
+    });
+
+    setNewMessage('');
+  };
+
+  return (
+    <div className="chat-container">
+      <div className="chat-header">
+        <h2>{currentRoom?.name}</h2>
+      </div>
+      
+      <div className="messages-container">
+        {messages.map((message) => (
+          <div 
+            key={message._id} 
+            className={`message ${message.user._id === currentUser._id ? 'sent' : 'received'}`}
+          >
+            <div className="message-user">
+              <img src={message.user.avatar} alt={message.user.username} />
+              <span>{message.user.username}</span>
+            </div>
+            <div className="message-content">{message.content}</div>
+            <div className="message-time">
+              {new Date(message.createdAt).toLocaleTimeString()}
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <form onSubmit={handleSendMessage} className="message-form">
+        <input
+          type="text"
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          placeholder="Type a message..."
+        />
+        <button type="submit">Send</button>
+      </form>
+    </div>
+  );
+};
+
+export default Chat;

@@ -1,0 +1,68 @@
+const socketIO = require('socket.io');
+const Message = require('../models/Message');
+const Room = require('../models/Room');
+
+let io;
+
+const initSocket = (server) => {
+  io = socketIO(server, {
+    cors: {
+      origin: process.env.CLIENT_URL,
+      methods: ['GET', 'POST']
+    }
+  });
+
+  io.on('connection', (socket) => {
+    console.log(`User connected: ${socket.id}`);
+
+    // Join room
+    socket.on('join_room', async ({ roomId, userId }) => {
+      socket.join(roomId);
+      console.log(`User ${userId} joined room ${roomId}`);
+      
+      // Fetch last 50 messages
+      const messages = await Message.find({ room: roomId })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .populate('user', 'username avatar');
+      
+      socket.emit('message_history', messages.reverse());
+    });
+
+    // Send message
+    socket.on('send_message', async (data) => {
+      const { roomId, userId, content } = data;
+      
+      // Save to database
+      const message = new Message({
+        content,
+        user: userId,
+        room: roomId
+      });
+      
+      const savedMessage = await message.save();
+      const populatedMessage = await Message.populate(savedMessage, {
+        path: 'user',
+        select: 'username avatar'
+      });
+
+      io.to(roomId).emit('receive_message', populatedMessage);
+    });
+
+    // Disconnect
+    socket.on('disconnect', () => {
+      console.log(`User disconnected: ${socket.id}`);
+    });
+  });
+
+  return io;
+};
+
+const getIO = () => {
+  if (!io) {
+    throw new Error('Socket.io not initialized');
+  }
+  return io;
+};
+
+module.exports = { initSocket, getIO };
